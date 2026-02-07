@@ -7,7 +7,6 @@ from PIL import Image, ImageDraw
 import io
 import random  # <--- NEW IMPORT
 
-# IMPORT YOUR TEAMMATE'S MODULE
 try:
     from src.ocr.pdf_to_images import pdf_to_images
 except ImportError:
@@ -70,7 +69,7 @@ async def detect_mistakes(
                     width=3
                 )
             # ====================================================
-
+            #in future to be changed with calling the model api
             # Merge and Save
             final_img = Image.alpha_composite(img, overlay)
             img_byte_arr = io.BytesIO()
