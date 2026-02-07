@@ -24,7 +24,7 @@ PDF_DPI = 300
 
 # Languages passed to OCR engines
 # order matters for some models
-LANGUAGES = ["hi", "en"]
+LANGUAGES = ['en','devanagari']  # English and Devanagari
 
 
 # ---------------------------------------------------------------------

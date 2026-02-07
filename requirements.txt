@@ -8,8 +8,9 @@ chromadb>=0.4,<0.5
 # ----------------------------
 # OCR (Primary Engine - GPU)
 # ----------------------------
-paddlepaddle-gpu==2.6.2
-paddleocr==2.7.3
+paddlepaddle-gpu==2.6.1.post118
+paddleocr>=2.7.0
+
 
 # ----------------------------
 # PDF Processing

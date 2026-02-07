@@ -42,7 +42,7 @@ class Page:
     page_no: int
 
     image_path: Path
-    preprocessed_path: Optional[Path] = None
+    preprocessed_path: Optional[Path] = None  # these are used in preprocess -> ocr.
 
     layout: Optional[List[Dict]] = None
     ocr_blocks: Optional[List[Dict]] = None
@@ -179,11 +179,11 @@ class OCRPipeline:
         out_dir.mkdir(exist_ok=True)
 
         for page in doc.pages.values():
-            if page.failed or page.text_layer is not None:
+            if page.failed or page.text_layer is not None: #IF THE PAGE ALREADY HAS A TEXT LAYER, SKIP PREPROCESSING.
                 continue
 
 
-            out = out_dir / page.image_path.name
+            out = out_dir / page.image_path.name # preprocessed image path
 
             if out.exists():
                 page.preprocessed_path = out
@@ -246,3 +246,30 @@ class OCRPipeline:
             except Exception as e:
                 page.failed = True
                 page.error = f"post: {e}"
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python -m src.ocr.pipeline data/raw/doc1.pdf")
+        sys.exit(1)
+
+    input_path = sys.argv[1]
+
+    pipeline = OCRPipeline()
+    doc = pipeline.run(input_path)
+
+    print("Document ID:", doc.id)
+    print("Status:", doc.status)
+    print("Pages processed:", len(doc.pages))
+
+    for i, page in doc.pages.items():
+        print(f"\n--- Page {i} ---")
+        if page.failed:
+            print("FAILED:", page.error)
+        else:
+            print("Confidence:", page.confidence)
+            print("Text preview:")
+            print((page.text or "")[:500])
+

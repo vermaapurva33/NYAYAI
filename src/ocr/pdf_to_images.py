@@ -7,7 +7,8 @@ from src.common.config import PDF_DPI, MAX_PDF_PAGES
 
 def pdf_to_images(pdf_path: Path, out_dir: Path) -> List[Path]:
     """
-    Convert a PDF into page-wise PNG images using pdftoppm.
+    Convert a PDF into page-wise PNG images using pdftoppm. 
+    (ppm = portable pixmap)
 
     This function treats PDFs as untrusted input and enforces:
     - input validation
@@ -25,14 +26,16 @@ def pdf_to_images(pdf_path: Path, out_dir: Path) -> List[Path]:
         raise RuntimeError(f"PDF path is not a file: {pdf_path}")
 
     try:
-        pdf_path.open("rb").close()
+        pdf_path.open("rb").close() #rb = read mode, binary mode
     except Exception as e:
         raise RuntimeError(f"PDF is not readable: {e}")
 
     # -------- output directory validation --------
 
     try:
-        out_dir.mkdir(parents=True, exist_ok=True)
+        out_dir.mkdir(parents=True, exist_ok=True) 
+        log_path = out_dir.parent / "pdftoppm.log"
+
     except PermissionError as e:
         raise RuntimeError(f"Cannot create output directory {out_dir}: {e}")
 
@@ -46,20 +49,27 @@ def pdf_to_images(pdf_path: Path, out_dir: Path) -> List[Path]:
         "pdftoppm",
         "-r", str(PDF_DPI),
         "-png",
-        pdf_path.as_posix(),
-        prefix.as_posix(),
-    ]
+        pdf_path.as_posix(), #input path
+        prefix.as_posix(), #output path
+    ] # so basically this is the command that will be run to convert pdf to images and it will store them in the out_dir, which will then be returned as a list of paths
 
     # -------- subprocess execution --------
-
     try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            timeout=120,  # safer default for large PDFs
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
+    # Open the log file in append mode ('a') 
+    # Use 'w' if you want to overwrite the log every time the script runs
+        with open(log_path, "a") as log_file:
+            # Write a timestamp or separator for clarity
+            print("Running pdftoppm command:")
+            log_file.write(f"\n--- Running pdftoppm for {pdf_path.name} ---\n")
+            log_file.flush() # Ensure header is written immediately
+
+            result = subprocess.run(
+                cmd,
+                check=True,
+                timeout=120,
+                stdout=log_file, # Redirect stdout to the file
+                stderr=subprocess.STDOUT,   # Redirect stderr to stdout (so it also goes to the file)
+            )
 
     except FileNotFoundError:
         raise RuntimeError(

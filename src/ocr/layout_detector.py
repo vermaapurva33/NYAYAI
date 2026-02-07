@@ -16,7 +16,7 @@ def _get_detector() -> PaddleOCR:
         _detector = PaddleOCR(
             use_angle_cls=False,
             use_gpu=USE_GPU,
-            rec=False  # detection only
+            rec=False  # detection only, recognition disabled.
         )
 
     return _detector
@@ -25,7 +25,6 @@ def _get_detector() -> PaddleOCR:
 def detect_layout(image_path: Path) -> List[Dict]:
     """
     Detect text regions on a page.
-
     Returns a list of bounding boxes.
     If no regions are found, returns an empty list.
     """

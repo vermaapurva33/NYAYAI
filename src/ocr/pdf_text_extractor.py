@@ -38,7 +38,7 @@ def extract_page_text(pdf_path: Path, page_no: int) -> Optional[str]:
     # Very small text blocks are usually headers, footers, or noise
     cleaned = text.strip()
 
-    if len(cleaned) < 100 or len(cleaned.split()) < 15:
+    if len(cleaned) < 200 or len(cleaned.split()) < 30:
         return None
 
 
