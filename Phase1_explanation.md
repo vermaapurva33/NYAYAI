@@ -127,9 +127,11 @@ here the engine is paddleocr, we check for both languages hindi and english.
 
 runs ocr using paddleocr and stores the results, it then return a list of dict of text and confidence which is stored in page.ocr_blocks.
 
+# Running the server
+start with two terminals one for api backend and one for streamlit frontend
 
+terminal 1 :
+uvicorn src.api.main:app --reload 
 
-
-
-
-
+terminal 2 :
+streamlit run src/frontend/ui.py
