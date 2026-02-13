@@ -14,7 +14,8 @@ def _get_engine() -> PaddleOCR:
         return _engine
 
     # lang = "+".join(LANGUAGES)
-    lang = 'devanagari' if 'devanagari' in LANGUAGES else 'en'
+    # lang = 'devanagari' if 'devanagari' in LANGUAGES else 'en'
+    lang = 'en'  # Simplify for now; extend later as needed
 
     # Try GPU first
     if USE_GPU:
