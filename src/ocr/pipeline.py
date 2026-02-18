@@ -142,14 +142,31 @@ class OCRPipeline:
 
         existing = sorted(
             pages_dir.glob("page-*.png"),
-            key=lambda p: int(p.stem.split("-")[1])
+            key=lambda p: int(p.stem.split("-")[1]) #custom sorting key
         )
         
-        if existing:
-            images = existing
-        else:
+        if not existing:
             images = pdf_to_images(doc.input_path, pages_dir)
+        else:
+             # Extract page numbers that exist
+            existing_nums = [int(p.stem.split("-")[1]) for p in existing]
 
+            # Check if pages are contiguous: 1,2,3,4,...N
+            expected_nums = list(range(1, max(existing_nums) + 1))
+
+            is_contiguous = existing_nums == expected_nums
+
+            if not is_contiguous:
+                # Incomplete or corrupted extraction
+                # Strategy: wipe and redo extraction
+                for p in existing:
+                    p.unlink()
+
+                images = pdf_to_images(doc.input_path, pages_dir)
+            else:
+                images = existing
+
+        # Register pages in document state
         for i, img in enumerate(images):
             if i not in doc.pages:
                 doc.pages[i] = Page(
