@@ -131,7 +131,7 @@ class OCRPipeline:
             raise ValueError("Unsupported file type")
 
         doc_id = self._doc_hash(path)
-        work_dir = TEMP_DIR / doc_id
+        work_dir = TEMP_DIR / doc_id #doc id is a variable name so no quotes
         work_dir.mkdir(parents=True, exist_ok=True)
 
         return Document(path, work_dir, doc_id)
@@ -140,7 +140,11 @@ class OCRPipeline:
         pages_dir = doc.work_dir / "pages"
         pages_dir.mkdir(exist_ok=True)
 
-        existing = sorted(pages_dir.glob("page-*.png"))
+        existing = sorted(
+            pages_dir.glob("page-*.png"),
+            key=lambda p: int(p.stem.split("-")[1])
+        )
+        
         if existing:
             images = existing
         else:

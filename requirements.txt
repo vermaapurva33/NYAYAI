@@ -30,3 +30,7 @@ opencv-python-headless>=4.10,<4.12
 python-dotenv>=1.0,<2.0
 numpy>=1.26,<1.27
 Pillow>=9.5,<11.0
+
+pypdf
+langchain-core
+langchain-community

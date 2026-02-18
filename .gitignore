@@ -6,7 +6,7 @@ data/temp
 models/
 *.bin
 *.pt
-
+data
 # Docker/System
 .env
 __pycache__/
@@ -16,3 +16,6 @@ __pycache__/
 # Database
 postgres_data/
 chroma_db/
+
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
