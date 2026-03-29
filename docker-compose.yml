@@ -1,43 +1,62 @@
 version: '3.8'
 
-services:
-  db:
-    restart: always
-    image: postgres:15
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - ./data/db/postgres:/var/lib/postgresql/data
+# ── Shared network so services address each other by name ─────────────────────
+networks:
+  nyayai-net:
+    driver: bridge
 
+services:
+
+  # ── Vector store (ChromaDB) ─────────────────────────────────────────────────
   vector-store:
     image: chromadb/chroma
+    networks: [nyayai-net]
     volumes:
       - ./data/db/chroma:/chroma/persist
     ports:
-      - "8000:8000"
+      - "8001:8000"   # host:8001 → container:8000
 
-  app:
-    restart: always
+  # ── Backend (FastAPI + ML) ──────────────────────────────────────────────────
+  backend:
     build:
-      context: .
-      dockerfile: .devcontainer/Dockerfile
-
-    tty: true
-    stdin_open: true
-
+      context: ./backend
+      dockerfile: Dockerfile
+    networks: [nyayai-net]
     volumes:
-      - .:/workspaces/NyayAI
-
-    env_file: .env
-
-    depends_on:
-      - db
-      - vector-store
-
-    # 🔑 GPU ENABLED — DevContainer compatible way
-    runtime: nvidia
+      # Mount trained model weights (not baked into the image — stays at root)
+      - ./models:/models:ro
+      # Mount raw data for PDF uploads during dev
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+    env_file: ./backend/.env
     environment:
+      - MODEL_PATH=/models/nyayai-error-detector
+      # Allow the containerised frontend to call this backend
+      - ALLOWED_ORIGINS=http://localhost:8501,http://frontend:8501
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    runtime: nvidia       # GPU access — requires nvidia-container-toolkit on host
+    depends_on:
+      - vector-store
+    restart: unless-stopped
+
+  # ── Frontend (Streamlit) ────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    networks: [nyayai-net]
+    ports:
+      - "8501:8501"
+    env_file: ./frontend/.env
+    environment:
+      # Use Docker internal DNS — "backend" resolves to the backend container
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  chroma-data:

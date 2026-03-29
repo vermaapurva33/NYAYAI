@@ -1,36 +1,68 @@
-# ----------------------------
-# Core NLP / Retrieval (Phase 2+)
-# ----------------------------
-transformers>=4.36,<5.0
-langchain>=0.1,<0.3
-chromadb>=0.4,<0.5
+# ============================================================
+#  NyayAI — Python Dependencies
+#  All versions pinned for reproducibility across machines.
+#  Install with: pip install -r requirements.txt
+# ============================================================
 
 # ----------------------------
-# OCR (Primary Engine - GPU)
+# Web Framework (API)
 # ----------------------------
-paddlepaddle-gpu==2.6.1.post118
-paddleocr>=2.7.0
+fastapi>=0.111,<0.113
+uvicorn[standard]>=0.29,<0.31
+python-multipart>=0.0.9,<0.1    # needed for FastAPI file uploads
 
+# ----------------------------
+# Frontend
+# ----------------------------
+streamlit>=1.33,<1.40
 
 # ----------------------------
 # PDF Processing
-# PaddleOCR requires PyMuPDF < 1.21
 # ----------------------------
-pymupdf>=1.19,<1.21
+# Fixed: was incorrectly capped at <1.21 due to old PaddleOCR comment.
+# PyMuPDF 1.23+ works with all current dependencies.
+pymupdf>=1.23,<1.26
 pdf2image>=1.16,<2.0
 
 # ----------------------------
-# Computer Vision (Docker-safe)
+# OCR (Replacing PaddleOCR with Surya)
 # ----------------------------
-opencv-python-headless>=4.10,<4.12
+# Surya: state-of-the-art open-source OCR (2024)
+# - Native per-word bounding boxes
+# - ~95% accuracy on English legal documents
+# - No nested-list format bugs like PaddleOCR
+surya-ocr>=0.4,<0.6
+
+# ----------------------------
+# ML — Model Training & Inference
+# ----------------------------
+transformers>=4.41,<5.0         # InLegalBERT + fine-tuning
+# NOTE: Install PyTorch GPU build manually (NOT from PyPI default index):
+#   pip install "torch==2.6.0+cu124" "torchvision==0.21.0+cu124" "torchaudio==2.6.0+cu124" \
+#       --index-url https://download.pytorch.org/whl/cu124
+# Matches: driver 550 | CUDA 12.4 | RTX 4050. Minimum >=2.6 due to CVE-2025-32434.
+torch>=2.6,<3.0
+datasets>=2.19,<3.0              # HuggingFace datasets (IL-TUR legal corpus)
+seqeval>=1.2,<1.3                # NER-style F1/precision/recall evaluation
+accelerate>=0.30,<1.0            # Required by HuggingFace Trainer for multi-GPU
+
+# ----------------------------
+# NLP / Retrieval (Phase 2+ — ChromaDB vector store)
+# ----------------------------
+langchain>=0.1,<0.3
+langchain-core
+langchain-community
+chromadb>=0.4,<0.6
+
+# ----------------------------
+# Computer Vision (preprocessing pipeline)
+# ----------------------------
+opencv-python-headless>=4.10,<4.12   # headless = no GUI deps (Docker-safe)
+numpy>=1.26,<2.0
 
 # ----------------------------
 # Utilities
 # ----------------------------
-python-dotenv>=1.0,<2.0
-numpy>=1.26,<1.27
 Pillow>=9.5,<11.0
-
-pypdf
-langchain-core
-langchain-community
+python-dotenv>=1.0,<2.0
+pypdf>=4.0,<5.0

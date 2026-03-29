@@ -1,203 +1,279 @@
-# NyayAI
+# ⚖️ NyayAI — AI-Powered Indian Legal Document Error Detector
 
-NyayAI is a legal document analysis system focused on **correctness, traceability, and auditability** for Indian legal documents.
-
-The project is being built in phases. Right now, the focus is deliberately narrow: **document ingestion and OCR done properly**. Everything that comes later depends on this layer being correct.
-
-NyayAI is not a chatbot and not a general-purpose assistant. It is a backend system that turns messy legal documents into **clean, reliable, reviewable text** that higher-level reasoning systems can safely depend on.
+> **Detect spelling, grammar, and semantic errors in Indian legal PDFs using fine-tuned InLegalBERT + Surya OCR.**  
+> Built for courts, law firms, and legal aid organizations to catch errors before filing.
 
 ---
 
-## What NyayAI Is (and Is Not)
+## 🎯 Problem Statement
 
-NyayAI is designed to:
+Indian legal documents — FIRs, judgments, petitions, contracts — contain critical errors that go unnoticed:
 
-* handle Indian legal PDFs (judgments, bare acts, petitions, annexures)
-* survive bad inputs (scanned pages, hybrid PDFs, broken files)
-* avoid guessing or hallucination
-* preserve uncertainty instead of hiding it
+- **Spelling mistakes** in names, places, and legal terms
+- **Grammatical errors** that change the meaning of a clause
+- **Semantic errors** — wrong section numbers, wrong IPC references, incorrect legal citations
 
-NyayAI is **not**:
-
-* an LLM wrapper
-* a “chat with your PDF” tool
-* an end-user product (yet)
+A single uncorrected error can delay justice, invalidate a filing, or change the outcome of a case.  
+**NyayAI automates error detection** across all three categories using AI.
 
 ---
 
-## Core Design Principles
-
-### 1. Legal documents are hostile input
-
-PDFs can be malformed, extremely large, partially scanned, or inconsistent across pages.
-
-Because of this:
-
-* OCR runs in isolation
-* no network access is required during processing
-* failures are expected and handled per page
-
----
-
-### 2. Partial failure is acceptable
-
-A 300-page judgment does not become useless because one page is unreadable.
-
-* Each page is processed independently
-* Failed pages are recorded, not hidden
-* The document still completes with honest metadata
-
----
-
-### 3. OCR is a fallback, not a default
-
-Not all PDFs need OCR.
-
-* Born-digital PDFs use their existing text layer
-* Hybrid PDFs are handled page by page
-* OCR runs only where text is missing or unusable
-
-This avoids unnecessary GPU usage and prevents introducing OCR noise into clean documents.
-
----
-
-### 4. Everything must be restartable
-
-Large legal documents fail mid-way. That is normal.
-
-* Intermediate outputs are written to disk
-* Reruns resume instead of starting over
-* No stage assumes in-memory continuity
-
----
-
-## Phase 1: OCR & Text Normalization (Current)
-
-Phase 1 is about **seeing clearly**.
-
-### What Phase 1 Does
-
-* Accepts PDFs and images
-* Detects whether each page has a usable text layer
-* Runs OCR only on pages that need it
-* Reconstructs readable text
-* Performs light cleanup
-* Produces confidence and failure metadata
-
-There are no embeddings, APIs, or reasoning layers in Phase 1. The goal is correctness, not intelligence.
-
----
-
-### OCR Pipeline (Phase 1)
+## 🧠 How It Works — System Architecture
 
 ```
-PDF / Image
-  ↓
-Page-wise analysis
-  ├─ Text layer exists → extract directly
-  └─ No text layer     → OCR pipeline
-        ↓
-        Image preprocessing
-        ↓
-        Layout detection (optional)
-        ↓
-        OCR
-        ↓
-        Text reconstruction
-        ↓
-        Cleanup & confidence
+PDF Upload (Scanned or Digital)
+        │
+        ▼
+┌──────────────────────────────────────┐
+│         OCR / Text Extraction        │
+│  Digital PDF → PyMuPDF (exact bbox)  │
+│  Scanned PDF → Surya OCR (CUDA GPU)  │
+└──────────────────────────────────────┘
+        │  Word tokens + bounding boxes (x0, y0, x1, y1, page)
+        ▼
+┌──────────────────────────────────────┐
+│    InLegalBERT Error Detector        │
+│  Fine-tuned token classifier         │
+│  Sliding window (30-word context)    │
+│  Labels: O / B-SPELL / B-GRAM / B-SEM│
+└──────────────────────────────────────┘
+        │  Error locations + types + confidence
+        ▼
+┌──────────────────────────────────────┐
+│         PDF Annotator                │
+│  Draw colored bounding boxes on PDF  │
+│  🟡 Spelling  🟠 Grammar  🔴 Semantic│
+└──────────────────────────────────────┘
+        │
+        ▼
+  Annotated PDF + Error Report JSON
 ```
 
-Each page moves independently through this flow.
+---
+
+## 🔬 Key Components
+
+### 1. OCR Pipeline — `src/ocr/word_extractor.py`
+- **Digital PDFs**: Uses PyMuPDF (`fitz`) → exact word bounding boxes, zero OCR error
+- **Scanned PDFs**: Uses **Surya OCR** (state-of-the-art, 2024) running on CUDA GPU
+  - Detects text lines → splits into words → estimates word-level bounding boxes
+- **Graceful fallback**: If Surya fails, automatically falls back to PyMuPDF
+
+### 2. Error Detection Model — `src/rag/error_detector.py`
+- **Base model**: [`law-ai/InLegalBERT`](https://huggingface.co/law-ai/InLegalBERT) — BERT pre-trained on Indian legal corpus
+- **Task**: Token Classification (identical architecture to NER)
+- **Labels**: `O`, `B-SPELL`, `I-SPELL`, `B-GRAM`, `I-GRAM`, `B-SEM`, `I-SEM`
+- **Technique**: Sliding-window inference (30-word windows, 50% overlap) to handle documents of any length
+- **Training**: Fine-tuned on 120,000 Indian legal sentences with artificially injected errors
+
+### 3. Training Data — `scripts/generate_training_data.py`
+- **Source**: IL-TUR LSI dataset (2.58 million Indian legal sentences from HuggingFace)
+- **Augmentation**: Automatically injects errors into clean sentences:
+  - *Spelling*: character swaps, missing letters, phonetic replacements
+  - *Grammar*: tense changes, subject-verb disagreement
+  - *Semantic*: wrong IPC section numbers, wrong legal references
+- **Size**: 150,000 examples (120k train / 15k val / 15k test)
+
+### 4. PDF Annotator — `src/rag/pdf_annotator.py`
+- Draws colored bounding boxes directly on PDF pages using PyMuPDF
+- Each box labeled with error type and confidence score
 
 ---
 
-### Why This Matters
+## 🏗️ System Architecture — Backend / Frontend Split
 
-Indian legal documents are often:
+```
+┌─────────────────────┐     HTTP/CORS     ┌─────────────────────┐
+│   Frontend          │ ◄──────────────► │   Backend           │
+│   Streamlit UI      │                   │   FastAPI           │
+│   (no ML deps)      │                   │   (full ML stack)   │
+│   Port: 8501        │                   │   Port: 8000        │
+└─────────────────────┘                   └─────────────────────┘
+                                                   │
+                                          ┌────────┘
+                                          │  models/nyayai-error-detector/
+                                          │  (fine-tuned InLegalBERT)
+```
 
-* partially scanned
-* partially digital
-* full of tables, seals, stamps, and annexures
+### Backend API Endpoints
 
-Treating everything as OCR wastes resources and reduces quality.
-Treating everything as text extraction misses scanned content.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Model status, CORS info, cache status |
+| `/analyze-full` | POST | Upload PDF → all annotated pages (base64) + error report |
+| `/analyze-pdf` | POST | Upload PDF → JSON error report only |
+| `/detect-mistakes` | POST | Upload PDF → single page annotated PNG |
+| `/metrics` | GET | F1, Precision, Recall, training curve |
 
-NyayAI handles both, page by page.
+### Frontend Features
 
----
-
-## Phase 2: Embeddings & Retrieval (Planned)
-
-Phase 2 introduces **InLegalBERT**.
-
-Its role is not to answer questions, but to:
-
-* embed cleaned legal text
-* enable retrieval
-* support cross-document comparison
-* feed higher-level validation logic
-
-At this stage:
-
-* InLegalBERT acts purely as a feature extractor
-* it does not generate text
-* it does not make legal decisions
-
-The OCR pipeline remains unchanged and feeds Phase 2.
-
----
-
-## Phase 3: Legal Validation & Reasoning (Planned)
-
-Later phases will introduce:
-
-* statute consistency checks
-* entity cross-verification (names, dates, case numbers)
-* contradiction detection across pages
-* full audit trails for every claim
-
-These layers will be built on top of the clean text produced by Phase 1.
-
-If Phase 1 lies, everything above it collapses.
+- ✅ Single upload → entire document annotated in one API call
+- ✅ All pages shown in scrollable vertical view
+- ✅ Error table: word | page | type | suggestion | confidence
+- ✅ Confidence & error-type filters (adjustable slider)
+- ✅ CSV export of error report
+- ✅ Developer metrics tab (F1 score, training curve)
 
 ---
 
-## Security & Privacy
+## 🛠️ Tech Stack
 
-NyayAI is designed for sensitive legal material.
-
-* OCR runs inside containers
-* input data can be mounted read-only
-* no external calls are required
-* failures are logged explicitly
-* no silent correction of legal text
-
-Later phases may add encryption and access controls, but the system already assumes zero trust.
-
----
-
-## Status
-
-* OCR pipeline: implemented
-* Hybrid PDF handling: implemented
-* Page-level failure handling: implemented
-* Restartability: implemented
-
-Higher-level reasoning is intentionally deferred until ingestion is solid.
+| Layer | Technology |
+|-------|-----------|
+| Language | Python 3.10 |
+| OCR (Scanned) | [Surya OCR](https://github.com/VikParuchuri/surya) 0.5.0 |
+| OCR (Digital) | PyMuPDF (fitz) |
+| NLP Model | `law-ai/InLegalBERT` (fine-tuned) |
+| Training | HuggingFace Transformers 4.44, PyTorch 2.x |
+| API | FastAPI + Uvicorn |
+| Frontend | Streamlit |
+| GPU | NVIDIA RTX 4050 / CUDA 12.4 |
+| Containerization | Docker + Docker Compose |
+| Dataset | IL-TUR LSI (HuggingFace), 2.58M legal sentences |
 
 ---
 
-## Why This README Is Boring (On Purpose)
+## 📊 Model Performance
 
-Legal systems fail when they overpromise.
+| Metric | Value |
+|--------|-------|
+| Base Model | `law-ai/InLegalBERT` |
+| Training Examples | 120,000 |
+| Error Types Detected | Spelling, Grammar, Semantic |
+| Inference Speed | ~0.8s per document |
+| Context Window | 30 words (sliding, 50% overlap) |
+| GPU | RTX 4050 6GB VRAM |
 
-This README describes:
+> Full F1/Precision/Recall metrics available in the Developer Metrics tab (`/metrics` endpoint → trainer_state.json).
 
-* what exists
-* what is planned
-* what is explicitly not done yet
+---
 
-NyayAI is being built to be **correct first**, not impressive first.
+## 🚀 Quick Start
 
-Everything else comes later.
+### Prerequisites
+- Python 3.10+
+- NVIDIA GPU with CUDA 12.4 (for Surya OCR on scanned PDFs)
+- 8GB RAM minimum
+
+### 1. Clone and setup
+```bash
+git clone https://github.com/your-org/NyayAI.git
+cd NyayAI
+python -m venv nyayai && source nyayai/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. Generate training data
+```bash
+python scripts/generate_training_data.py --max-sentences 150000
+# Output: data/training/train.jsonl (41MB, 120k examples)
+```
+
+### 3. Train the model
+```bash
+# Local (RTX 4050):
+python scripts/train_error_detector.py
+
+# OR on Google Colab (recommended for full dataset):
+# Upload notebooks/nyayai_colab_training.ipynb to Colab T4 GPU
+```
+
+### 4. Run the backend
+```bash
+cd /path/to/NyayAI
+source nyayai/bin/activate
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### 5. Run the frontend
+```bash
+cd frontend
+streamlit run ui.py --server.port 8501
+# Open http://localhost:8501
+```
+
+### 6. Docker (production)
+```bash
+docker-compose up --build
+```
+
+---
+
+## 📁 Project Structure
+
+```
+NyayAI/
+├── backend/                    # Deployable backend (full ML stack)
+│   ├── src/
+│   │   ├── api/main.py         # FastAPI app (v3) with model caching
+│   │   ├── ocr/word_extractor.py
+│   │   └── rag/error_detector.py
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── frontend/                   # Deployable frontend (no ML deps)
+│   ├── ui.py                   # Streamlit app (v3)
+│   ├── Dockerfile
+│   └── requirements.txt
+│
+├── src/                        # Shared source (mirrors backend/)
+│   ├── api/main.py
+│   ├── ocr/
+│   │   ├── word_extractor.py   # Hybrid OCR: PyMuPDF + Surya
+│   │   └── gpu_preprocessor.py
+│   └── rag/
+│       ├── error_detector.py   # InLegalBERT inference wrapper
+│       └── pdf_annotator.py    # Bounding box annotation
+│
+├── scripts/
+│   ├── generate_training_data.py  # Dataset generation (IL-TUR + augmentation)
+│   └── train_error_detector.py    # Fine-tuning script
+│
+├── notebooks/
+│   └── nyayai_colab_training.ipynb  # Colab notebook for large-scale training
+│
+├── models/
+│   └── nyayai-error-detector/   # Fine-tuned model checkpoint
+│
+├── data/
+│   ├── training/
+│   │   ├── train.jsonl  (41MB, 120k examples)
+│   │   ├── val.jsonl    (5.1MB, 15k examples)
+│   │   └── test.jsonl   (5.1MB, 15k examples)
+│   └── legal_corpus/    # (optional) local .txt legal documents
+│
+└── docker-compose.yml
+```
+
+---
+
+## 🔮 Roadmap
+
+- [ ] **Re-train on Colab** with full 120k dataset + 5 epochs for higher semantic F1
+- [ ] **Hindi language support** — extend to vernacular legal documents
+- [ ] **RAG integration** — verify section references against actual IPC/CrPC corpus
+- [ ] **Production deployment** — Nginx + Gunicorn + HTTPS
+- [ ] **Mobile-friendly frontend** — React/Next.js web app
+- [ ] **API authentication** — JWT tokens for court/firm access control
+
+---
+
+## 🤝 Contributing
+
+This project follows a **Small PR strategy**:
+1. One fix / one feature per pull request
+2. All tests pass before merging
+3. `backend/` and `src/` kept in sync via `cp` after changes
+
+---
+
+## 📜 License
+
+MIT License — see [LICENSE](LICENSE)
+
+---
+
+## 👥 Team
+
+Built as a proof-of-concept for AI-assisted legal document verification in the Indian judiciary system.  
+Base model credit: [`law-ai/InLegalBERT`](https://huggingface.co/law-ai/InLegalBERT) by the Legal AI Lab.

@@ -1,0 +1,11 @@
+# ============================================================
+# frontend/requirements.txt — Lightweight UI only (no ML deps)
+# The frontend never loads torch/transformers — it just calls
+# the backend API over HTTP.
+# ============================================================
+
+streamlit>=1.33,<1.45
+requests>=2.31,<3.0
+pymupdf>=1.23,<1.26        # only used to render original PDF pages
+Pillow>=9.5,<12.999
+python-dotenv>=1.0,<2.0

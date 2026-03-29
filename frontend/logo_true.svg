@@ -1,0 +1,9 @@
+<svg xmlns="http://www.svg.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Lawyer collar bands (transparent background) -->
+  <!-- Top collar curve -->
+  <path d="M 20 40 Q 50 20 80 40 L 75 45 Q 50 30 25 45 Z" fill="#000000" />
+  <!-- Left band -->
+  <path d="M 40 35 L 30 85 L 45 85 L 48 35 Z" fill="#ffffff" stroke="#bbbbbb" stroke-width="1.5" />
+  <!-- Right band -->
+  <path d="M 60 35 L 70 85 L 55 85 L 52 35 Z" fill="#ffffff" stroke="#bbbbbb" stroke-width="1.5" />
+</svg>
