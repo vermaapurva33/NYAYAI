@@ -17,5 +17,26 @@ __pycache__/
 postgres_data/
 chroma_db/
 
+# Work files
 .ipynb_checkpoints
 */.ipynb_checkpoints/*
+*.pdf
+!*_template.pdf  # If you ever have a template pdf to commit, keep it
+*.log
+
+# Python Environments
+venv/
+.venv/
+env/
+.env/
+nyayai/
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Data
+.DS_Store
+Thumbs.db
