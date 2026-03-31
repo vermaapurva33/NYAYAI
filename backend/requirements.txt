@@ -29,3 +29,4 @@ numpy>=1.26,<2.0
 Pillow>=9.5,<12.999
 python-dotenv>=1.0,<2.0
 pypdf>=4.0,<5.0
+firebase-admin>=6.5.0,<7.0.0

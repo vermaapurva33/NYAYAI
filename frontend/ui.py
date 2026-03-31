@@ -17,6 +17,11 @@ import pandas as pd
 import streamlit as st
 from PIL import Image
 from pathlib import Path
+from dotenv import load_dotenv
+
+env_path = Path(__file__).parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
 
 SVG_TRUE  = Path(__file__).parent / "logo_true.svg"
 LOGO_FILE = Path(__file__).parent / "finalised_logo.png"
@@ -406,13 +411,36 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ── Authentication logic ────────────────────────────────────────────────────────
+FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY", "").strip('"').strip("'")
+
+def _firebase_login(email, password):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_API_KEY}"
+    payload = {"email": email, "password": password, "returnSecureToken": True}
+    r = requests.post(url, json=payload)
+    if r.ok:
+        return r.json()
+    else:
+        err = r.json().get("error", {}).get("message", "Login failed")
+        raise Exception(err)
+
+def _firebase_signup(email, password):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={FIREBASE_API_KEY}"
+    payload = {"email": email, "password": password, "returnSecureToken": True}
+    r = requests.post(url, json=payload)
+    if r.ok:
+        return r.json()
+    else:
+        err = r.json().get("error", {}).get("message", "Signup failed")
+        raise Exception(err)
+
 # ── Session state initialization ──────────────────────────────────────────────
 def _init_state():
     defaults = {
-        "page":       "home",
-        "user":       None,
-        "users_db":   {"demo@nyayai.in": "demo1234"},
-        "result":     None,
+        "page":         "home",
+        "user":         None,
+        "access_token": None,
+        "result":       None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -622,13 +650,17 @@ def page_login():
         st.markdown("<br>", unsafe_allow_html=True)
 
         if st.button("Sign In", key="li_btn", use_container_width=True):
-            db = st.session_state.users_db
-            if email in db and db[email] == password:
-                st.session_state.user = email
-                go("dashboard")
+            if not FIREBASE_API_KEY or FIREBASE_API_KEY == "your_firebase_api_key_here":
+                st.error("Authentication backend not configured (.env missing API Key).")
             else:
-                st.error("Invalid email or password.")
-
+                try:
+                    res = _firebase_login(email, password)
+                    st.session_state.user = res.get("email")
+                    st.session_state.access_token = res.get("idToken")
+                    go("dashboard")
+                except Exception as e:
+                    err = str(e).replace("_", " ").title()
+                    st.error(f"Authentication failed: {err}")
         st.markdown('<p style="text-align:center;font-size:0.85rem;color:#888;margin-top:1.5rem;">Don\'t have an account?</p>', unsafe_allow_html=True)
 
         col_a, col_b = st.columns(2, gap="small")
@@ -673,18 +705,21 @@ def page_signup():
         st.markdown("<br>", unsafe_allow_html=True)
 
         if st.button("Create Account", key="su_btn", use_container_width=True):
-            if not name or not email or not password:
+            if not FIREBASE_API_KEY or FIREBASE_API_KEY == "your_firebase_api_key_here":
+                st.error("Authentication backend not configured (.env missing API Key).")
+            elif not name or not email or not password:
                 st.error("All fields are required.")
             elif password != confirm:
                 st.error("Passwords do not match.")
-            elif len(password) < 8:
-                st.error("Password must be at least 8 characters.")
-            elif email in st.session_state.users_db:
-                st.error("An account with this email already exists.")
+            elif len(password) < 6:
+                st.error("Password must be at least 6 characters.")
             else:
-                st.session_state.users_db[email] = password
-                st.session_state.user = email
-                go("dashboard")
+                try:
+                    res = _firebase_signup(email, password)
+                    st.success("Account created successfully! Please sign in.")
+                except Exception as e:
+                    err = str(e).replace("_", " ").title()
+                    st.error(f"Account creation failed: {err}")
 
 
         col_a, col_b = st.columns(2)
@@ -717,6 +752,7 @@ def page_dashboard():
     with col_user:
         if st.button("Sign Out", key="db_signout"):
             st.session_state.user = None
+            st.session_state.access_token = None
             go("home")
 
     # Welcome
@@ -848,8 +884,13 @@ def page_checker():
 
             with st.spinner("Running OCR and error detection — this may take up to 60 seconds on first run..."):
                 try:
+                    headers = {}
+                    if st.session_state.get("access_token"):
+                        headers["Authorization"] = f"Bearer {st.session_state.access_token}"
+                        
                     resp = requests.post(
                         f"{BACKEND_URL}/analyze-full",
+                        headers=headers,
                         files={"file": (uploaded.name, uploaded.getvalue(), "application/pdf")},
                         timeout=TIMEOUT_S,
                     )

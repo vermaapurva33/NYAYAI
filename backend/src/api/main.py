@@ -20,10 +20,18 @@ import time
 from pathlib import Path
 from typing import Optional
 from functools import lru_cache
+from dotenv import load_dotenv
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+env_path = Path(__file__).resolve().parents[2] / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import firebase_admin
+from firebase_admin import credentials, auth
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -47,6 +55,37 @@ app.add_middleware(
     allow_headers=["*"],
     allow_credentials=False,
 )
+
+# ── Authentication ────────────────────────────────────────────────────────────
+security = HTTPBearer()
+
+FIREBASE_CREDENTIALS = os.getenv("FIREBASE_CREDENTIALS")
+_firebase_initialized = False
+
+if FIREBASE_CREDENTIALS and Path(FIREBASE_CREDENTIALS).exists() and not firebase_admin._apps:
+    try:
+        cred = credentials.Certificate(FIREBASE_CREDENTIALS)
+        firebase_admin.initialize_app(cred)
+        _firebase_initialized = True
+        print(f"🔥 Firebase Admin initialized using {FIREBASE_CREDENTIALS}")
+    except Exception as e:
+        print(f"⚠️ Failed to initialize Firebase: {e}")
+
+async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(security)):
+    """Verifies the Firebase JWT token and extracts user info."""
+    if not _firebase_initialized:
+        # Fallback for local development if credentials aren't set
+        return {"uid": "anonymous", "email": "dev@local"}
+    
+    try:
+        decoded_token = auth.verify_id_token(creds.credentials)
+        return decoded_token
+    except Exception as e:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid authentication credentials: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 # ── Model paths ───────────────────────────────────────────────────────────────
 _MODEL_PATH = Path(os.getenv(
@@ -257,7 +296,10 @@ async def health():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.post("/analyze-pdf")
-async def analyze_pdf(file: UploadFile = File(...)):
+async def analyze_pdf(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user)
+):
     """
     Upload PDF → JSON report with every error's word, page, type, suggestion.
 
@@ -310,6 +352,7 @@ async def analyze_pdf(file: UploadFile = File(...)):
 async def detect_mistakes(
     file: UploadFile = File(...),
     page_number: int = Form(...),
+    user: dict = Depends(get_current_user)
 ):
     """
     Upload PDF → annotated PNG of the requested page.
@@ -355,7 +398,10 @@ async def detect_mistakes(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.post("/analyze-full")
-async def analyze_full(file: UploadFile = File(...)):
+async def analyze_full(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user)
+):
     """
     Upload PDF → JSON with:
     - errors report (same as /analyze-pdf)

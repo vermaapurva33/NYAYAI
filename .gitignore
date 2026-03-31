@@ -13,6 +13,9 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 
+# Credentials
+firebase_service_account.json
+
 # Database
 postgres_data/
 chroma_db/
