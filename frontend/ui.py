@@ -900,87 +900,60 @@ def page_checker():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Three panels
-    left, mid, right = st.columns([1, 1, 1], gap="medium")
+    # ── FIXED: 3-panel layout with Internal Scrolling ─────────────────────────
+    # We use a standard ratio. col2 (Annotated) is usually the most important.
+    left, mid, right = st.columns([1, 1.2, 0.8], gap="small")
+
+    # Set a consistent height for all panels so they align perfectly
+    PANEL_HEIGHT = 700 
 
     # LEFT — original document
     with left:
         st.markdown('<div class="panel-header">Original Document</div>', unsafe_allow_html=True)
-        st.markdown('<div class="panel-wrap">', unsafe_allow_html=True)
-        orig_bytes = data.get("_original_bytes")
-        if orig_bytes:
-            try:
-                import fitz
-                doc = fitz.open(stream=orig_bytes, filetype="pdf")
-                pix = doc.load_page(sel_page).get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
-                img = Image.open(io.BytesIO(pix.tobytes("png")))
-                # Center the image and remove padding
-                st.markdown('<div style="text-align:center;padding:10px;">', unsafe_allow_html=True)
-                st.image(img, use_column_width="always")
-                st.markdown('</div>', unsafe_allow_html=True)
-                doc.close()
-            except Exception as e:
-                st.caption(f"Could not render original: {e}")
-        else:
-            st.caption("Original not available.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        # container(height=...) creates the fixed scrollable box
+        with st.container(height=PANEL_HEIGHT, border=True):
+            orig_bytes = data.get("_original_bytes")
+            if orig_bytes:
+                try:
+                    import fitz
+                    doc = fitz.open(stream=orig_bytes, filetype="pdf")
+                    pix = doc.load_page(sel_page).get_pixmap(matrix=fitz.Matrix(1.2, 1.2))
+                    img = Image.open(io.BytesIO(pix.tobytes("png")))
+                    st.image(img, use_container_width=True)
+                    doc.close()
+                except Exception as e:
+                    st.caption(f"Error: {e}")
 
     # MIDDLE — annotated document
     with mid:
         st.markdown('<div class="panel-header">Annotated Output</div>', unsafe_allow_html=True)
-        st.markdown('<div class="panel-wrap">', unsafe_allow_html=True)
-        if pages and sel_page < len(pages):
-            img_bytes = base64.b64decode(pages[sel_page])
-            img = Image.open(io.BytesIO(img_bytes))
-            st.markdown('<div style="text-align:center;padding:10px;">', unsafe_allow_html=True)
-            st.image(img, use_column_width="always")
-            st.markdown("""
-            <div style="font-size:0.75rem;color:#888;margin-top:0.5rem;display:flex;gap:1rem;justify-content:center;">
-              <span style="border-bottom:2px solid #d4a000;">Spelling</span>
-              <span style="border-bottom:2px solid #cc5500;">Grammar</span>
-              <span style="border-bottom:2px solid #c0392b;">Semantic</span>
-            </div>
-            </div>""", unsafe_allow_html=True)
-        else:
-            st.caption("No annotated output for this page.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        with st.container(height=PANEL_HEIGHT, border=True):
+            if pages and sel_page < len(pages):
+                img_bytes = base64.b64decode(pages[sel_page])
+                img = Image.open(io.BytesIO(img_bytes))
+                st.image(img, use_container_width=True)
+                st.markdown("""
+                <div style="font-size:0.7rem; color:#888; text-align:center; margin-top:10px;">
+                  🟡 Spelling &nbsp; 🟠 Grammar &nbsp; 🔴 Semantic
+                </div>""", unsafe_allow_html=True)
 
     # RIGHT — error list
     with right:
         st.markdown('<div class="panel-header">Errors & Suggestions</div>', unsafe_allow_html=True)
-        st.markdown('<div class="panel-wrap"><div class="panel-wrap-inner">', unsafe_allow_html=True)
-
-        page_errors = [e for e in errors if e.get("page", 0) == sel_page]
-
-        if not page_errors:
-            if errors:
-                st.markdown('<p style="color:#aaa;font-size:0.88rem;text-align:center;margin-top:2rem;">No errors on this page.<br>Use the slider to navigate to other pages.</p>', unsafe_allow_html=True)
+        with st.container(height=PANEL_HEIGHT, border=True):
+            page_errors = [e for e in errors if e.get("page", 0) == sel_page]
+            if not page_errors:
+                st.info("No errors on this page.")
             else:
-                st.markdown('<p style="color:#27ae60;font-size:0.88rem;font-weight:600;text-align:center;margin-top:2rem;">No errors detected in this document.<br>This file cleanly follows all standards.</p>', unsafe_allow_html=True)
-        else:
-            type_label = {"SPELL": "Spelling", "GRAM": "Grammar", "SEM": "Semantic"}
-            for i, err in enumerate(sorted(page_errors, key=lambda x: (x.get("y0", 0), x.get("x0", 0)))):
-                et   = err.get("error_type", "?")
-                word = err.get("word", "")
-                sugg = err.get("suggestion", "")
-                conf = err.get("confidence", 0)
-                
-                # Make the errors visually pop more in the 3rd panel
-                bg_color = {"SPELL": "#fffcf2", "GRAM": "#fff5eb", "SEM": "#fdf3f2"}.get(et, "#fafbff")
-                br_color = {"SPELL": "#f2d87e", "GRAM": "#ffb272", "SEM": "#eda6a1"}.get(et, "#e0eaf5")
-                
-                st.markdown(f"""
-                <div class="err-row" style="background:{bg_color}; border:1px solid {br_color}; border-radius:6px; padding:0.8rem; margin-bottom:0.8rem; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-                    <span class="err-word" style="font-size:1rem;">{word}</span>
-                    <span class="err-type-{et}" style="font-size:0.72rem;background:#fff;padding:0.1rem 0.4rem;border-radius:4px;border:1px solid {br_color};">{type_label.get(et, et)}</span>
-                  </div>
-                  <div class="err-suggestion" style="color:#4a4a4a;line-height:1.4;">
-                    <strong>Fix:</strong> {sugg}
-                  </div>
-                  <div style="font-size:0.7rem;color:#888;margin-top:0.4rem;">Conf: {conf:.0%}</div>
-                </div>""", unsafe_allow_html=True)
-
+                for err in sorted(page_errors, key=lambda x: (x.get("y0", 0))):
+                    et = err.get("error_type", "SPELL")
+                    # Visual styling based on error type
+                    color = {"SPELL": "#b8860b", "GRAM": "#cc5500", "SEM": "#c0392b"}.get(et, "#000")
+                    
+                    with st.expander(f"**{err.get('word')}**", expanded=True):
+                        st.markdown(f"<span style='color:{color}; font-weight:bold;'>{et}</span>", unsafe_allow_html=True)
+                        st.write(f"Fix: {err.get('suggestion')}")
+                        st.caption(f"Confidence: {err.get('confidence', 0):.0%}")
         st.markdown('</div></div>', unsafe_allow_html=True)
 
         # Download
