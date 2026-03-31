@@ -919,7 +919,7 @@ def page_checker():
                     doc = fitz.open(stream=orig_bytes, filetype="pdf")
                     pix = doc.load_page(sel_page).get_pixmap(matrix=fitz.Matrix(1.2, 1.2))
                     img = Image.open(io.BytesIO(pix.tobytes("png")))
-                    st.image(img, use_container_width=True)
+                    st.image(img, use_column_width=True)
                     doc.close()
                 except Exception as e:
                     st.caption(f"Error: {e}")
@@ -931,7 +931,7 @@ def page_checker():
             if pages and sel_page < len(pages):
                 img_bytes = base64.b64decode(pages[sel_page])
                 img = Image.open(io.BytesIO(img_bytes))
-                st.image(img, use_container_width=True)
+                st.image(img, use_column_width=True)
                 st.markdown("""
                 <div style="font-size:0.7rem; color:#888; text-align:center; margin-top:10px;">
                   🟡 Spelling &nbsp; 🟠 Grammar &nbsp; 🔴 Semantic

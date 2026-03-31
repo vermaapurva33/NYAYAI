@@ -150,7 +150,7 @@ class LegalLogicEngine:
 # Spell suggestion helper
 # ─────────────────────────────────────────────────────────────────────────────
 
-LEGAL_WHITELIST = {"reprocessed", "petitioner", "respondent", "maunds", "appellant"}
+LEGAL_WHITELIST = {"reprocessed", "petitioner", "respondent", "maunds", "appellant","reassembly"}
 
 def _suggest(word: str, error_type: str) -> str:
 
