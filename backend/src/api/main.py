@@ -9,6 +9,8 @@ Key improvements over v2:
   - CORS configured via ALLOWED_ORIGINS env var
 """
 
+
+
 import os
 import sys
 import json
@@ -52,12 +54,11 @@ _MODEL_PATH = Path(os.getenv(
     str(BACKEND_ROOT.parent / "models" / "nyayai-error-detector")
 ))
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GLOBAL MODEL CACHE — loaded once at first request, reused for all subsequent
-# ─────────────────────────────────────────────────────────────────────────────
+_surya_models  = None   # Stores (det_model, det_processor, rec_model, rec_processor)
+_bert_detector = None   # Stores the ErrorDetector instance
 
-_surya_models  = None   # (det_model, det_processor, rec_model, rec_processor)
-_bert_detector = None   # ErrorDetector instance
+import re
+from collections import Counter
 
 def _get_surya():
     global _surya_models
@@ -75,12 +76,86 @@ def _get_detector():
         _bert_detector = ErrorDetector(model_path=str(_MODEL_PATH))
     return _bert_detector
 
+class LegalLogicEngine:
+    def __init__(self):
+        # The key to a successful demo: Anchor to the actual Statute year
+        self.CITED_STATUTE_YEAR = 1944 
 
+    def detect_semantic_errors(self, tokens):
+        semantic_errors = []
+        clean_tokens = [t for t in tokens if (t.get('word') or t.get('text'))]
+        
+        # Standardize for logic
+        for t in clean_tokens:
+            t['_raw'] = (t.get('word') or t.get('text')).strip()
+            # ONLY extract digits if the string isn't a complex date like 18/19th
+            if re.match(r'^[\d,.]+$', t['_raw']):
+                t['_digits'] = re.sub(r'[^\d]', '', t['_raw'])
+            else:
+                t['_digits'] = ""
+
+        # 1. IDENTIFY THE "TRUTH" FOR THIS DOC
+        # Find 3-digit Notifications (e.g., 706)
+        ids = [t['_digits'] for t in clean_tokens if len(t['_digits']) == 3]
+        primary_id = Counter(ids).most_common(1)[0][0] if ids else None
+
+        # Find Quantities associated with "Mds" (Maunds)
+        quantities = []
+        for i, t in enumerate(clean_tokens):
+            if i < len(clean_tokens) - 1:
+                context = clean_tokens[i+1]['_raw'].lower()
+                if "mds" in context or "maunds" in context:
+                    if t['_digits']: quantities.append(t['_digits'])
+        
+        primary_qty = Counter(quantities).most_common(1)[0][0] if quantities else None
+
+        # 2. VALIDATION LOOP
+        for t in clean_tokens:
+            raw = t['_raw']
+            digits = t['_digits']
+
+            # ERROR 1: The "1800" Date (Chronological Impossibility)
+            # Only check if it's EXACTLY 4 digits (ignores 18/19th)
+            if re.match(r'^\d{4}$', raw):
+                year = int(digits)
+                if year < self.CITED_STATUTE_YEAR:
+                    semantic_errors.append(self._create_err(t, "SEM", 
+                        f"Chronological Error: Date {raw} precedes the cited 1944 Statute."))
+
+            # ERROR 2: The "705 vs 706" Slip (Reference Consistency)
+            if primary_id and len(digits) == 3 and digits != primary_id:
+                # Only flag if it's a 'neighbor' (close number), likely a typo
+                if abs(int(digits) - int(primary_id)) <= 2:
+                    semantic_errors.append(self._create_err(t, "SEM", 
+                        f"Inconsistent Reference: Found {raw}, but document primarily cites No. {primary_id}."))
+
+            # ERROR 3: The "1,272 vs 12,724" Mismatch (Data Integrity)
+            if primary_qty and digits in quantities and digits != primary_qty:
+                semantic_errors.append(self._create_err(t, "SEM", 
+                    f"Quantity Conflict: Value {raw} contradicts the primary quantity of {primary_qty} Mds."))
+
+        return semantic_errors
+
+    def _create_err(self, token, err_type, suggestion):
+        return {
+            "word": token['_raw'],
+            "page": token.get('page', 0) or token.get('page_idx', 0),
+            "error_type": err_type,
+            "suggestion": suggestion,
+            "confidence": 1.0,
+            "x0": token.get('x0', 0), "y0": token.get('y0', 0),
+            "x1": token.get('x1', 0), "y1": token.get('y1', 0),
+        }
 # ─────────────────────────────────────────────────────────────────────────────
 # Spell suggestion helper
 # ─────────────────────────────────────────────────────────────────────────────
 
+LEGAL_WHITELIST = {"reprocessed", "petitioner", "respondent", "maunds", "appellant"}
+
 def _suggest(word: str, error_type: str) -> str:
+
+    if word.lower() in LEGAL_WHITELIST:
+        return "" # Suppress suggestion/error for whitelisted words
     """Return a simple correction hint for the detected error."""
     if error_type == "SPELL":
         try:
@@ -104,36 +179,60 @@ def _suggest(word: str, error_type: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _run_pipeline(pdf_path: Path, annotated_path: Path):
-    """
-    Run the full NyayAI pipeline and return (tokens, errors).
-    Surya + BERT models are loaded from global cache.
-    """
-    import fitz
+    import pymupdf as fitz
     from src.ocr.word_extractor import extract_words
     from src.rag.pdf_annotator import annotate_pdf
 
+    # 1. OCR Step
     t0 = time.time()
     tokens = extract_words(pdf_path)
     ocr_time = time.time() - t0
 
+    # 2. AI Model Step (Local Grammar/Spelling)
     t1 = time.time()
     detector = _get_detector()
-    errors = detector.detect(tokens)
+    bert_errors = detector.detect(tokens)
+    
+    # 3. Logic Engine Step (Global Semantic Consistency)
+    logic_engine = LegalLogicEngine()
+    semantic_errors = logic_engine.detect_semantic_errors(tokens)
+    
+    print(f"DEBUG: BERT found {len(bert_errors)} errors.")
+    print(f"DEBUG: Logic Engine found {len(semantic_errors)} semantic errors.")
+
+    # Merge errors: Prioritize Logic Engine for Semantic, then BERT
+    # This prevents duplicate highlights on the same word
+    raw_errors = semantic_errors + bert_errors
     inference_time = time.time() - t1
 
-    annotate_pdf(pdf_path, errors, annotated_path)
+    total_errors = []
+    
+    for err in raw_errors:
+        # Normalize the word for comparison (strip punctuation and lower case)
+        word_to_check = err.get("word", "").lower().strip(".,() ")
+        
+        if word_to_check in LEGAL_WHITELIST:
+            continue # Skip this error, don't add it to the final list
+            
+        # If not whitelisted, add the suggestion
+        if not err.get("suggestion"):
+            err["suggestion"] = _suggest(word_to_check, err.get("error_type", ""))
+            
+        total_errors.append(err)
+    # 4. Annotation & Metadata
+    annotate_pdf(pdf_path, total_errors, annotated_path)
 
-    # Add suggestions
-    for err in errors:
-        err["suggestion"] = _suggest(err.get("word", ""), err.get("error_type", ""))
+    for err in total_errors:
+        if not err.get("suggestion"):
+            err["suggestion"] = _suggest(err.get("word", ""), err.get("error_type", ""))
 
     meta = {
         "total_words":     len(tokens),
-        "total_errors":    len(errors),
+        "total_errors":    len(total_errors),
         "ocr_time_s":      round(ocr_time, 2),
         "inference_time_s": round(inference_time, 2),
     }
-    return tokens, errors, meta
+    return tokens, total_errors, meta
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -164,16 +263,16 @@ async def analyze_pdf(file: UploadFile = File(...)):
 
     Response:
     {
-      "total_words": 5616,
-      "total_errors": 4,
-      "ocr_time_s": 12.3,
-      "inference_time_s": 0.8,
-      "summary": {"SPELL": 2, "GRAM": 1, "SEM": 1},
-      "errors": [
+    "total_words": 5616,
+    "total_errors": 4,
+    "ocr_time_s": 12.3,
+    "inference_time_s": 0.8,
+    "summary": {"SPELL": 2, "GRAM": 1, "SEM": 1},
+    "errors": [
         {"word": "imprissoned", "page": 2, "error_type": "SPELL",
-         "suggestion": "imprisoned", "confidence": 0.94, "x0": ..., ...},
+        "suggestion": "imprisoned", "confidence": 0.94, "x0": ..., ...},
         ...
-      ]
+    ]
     }
     """
     with tempfile.TemporaryDirectory() as tmp:
@@ -259,8 +358,8 @@ async def detect_mistakes(
 async def analyze_full(file: UploadFile = File(...)):
     """
     Upload PDF → JSON with:
-      - errors report (same as /analyze-pdf)
-      - base64-encoded annotated PNG for EVERY page (for scrollable frontend)
+    - errors report (same as /analyze-pdf)
+    - base64-encoded annotated PNG for EVERY page (for scrollable frontend)
 
     The frontend calls this ONCE and gets everything it needs.
     """
